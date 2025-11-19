@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: acme-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: acme
+      POSTGRES_PASSWORD: acme
+      POSTGRES_DB: acme
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U acme -d acme"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: acme-redis
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    container_name: acme-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://acme:acme@db:5432/acme
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_BACKEND_URL=redis://redis:6379/0
+      - UPLOAD_DIR=/shared
+    volumes:
+      - shared_uploads:/shared
+
+  worker:
+    build: .
+    container_name: acme-worker
+    command: celery -A app.workers.celery_app.celery_app worker --loglevel=info
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      api:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://acme:acme@db:5432/acme
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_BACKEND_URL=redis://redis:6379/0
+      - UPLOAD_DIR=/shared
+    volumes:
+      - shared_uploads:/shared
+
+volumes:
+  shared_uploads:
